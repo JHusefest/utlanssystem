@@ -17,15 +17,18 @@ log = logging.getLogger("uvicorn.error")
 
 
 def wait_for_db(retries: int = 30, delay: float = 2.0) -> None:
+    last_error: Exception | None = None
     for attempt in range(1, retries + 1):
         try:
             with engine.connect() as conn:
                 conn.execute(select(1))
             return
-        except OperationalError:
-            log.warning("Venter på databasen (forsøk %s/%s)…", attempt, retries)
+        except OperationalError as exc:
+            last_error = exc
+            reason = str(getattr(exc, "orig", exc)).strip().splitlines()[0]
+            log.warning("Venter på databasen (forsøk %s/%s): %s", attempt, retries, reason)
             time.sleep(delay)
-    raise RuntimeError("Fikk ikke kontakt med databasen.")
+    raise RuntimeError(f"Fikk ikke kontakt med databasen. Siste feil: {last_error}")
 
 
 def create_first_admin() -> None:
