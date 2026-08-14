@@ -1,0 +1,46 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-utlaan}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-utlaan}
+      POSTGRES_DB: ${POSTGRES_DB:-utlaan}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-utlaan} -d ${POSTGRES_DB:-utlaan}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-utlaan}:${POSTGRES_PASSWORD:-utlaan}@db:5432/${POSTGRES_DB:-utlaan}
+      SECRET_KEY: ${SECRET_KEY:-bytt-meg-i-produksjon}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-720}
+      FIRST_ADMIN_USERNAME: ${FIRST_ADMIN_USERNAME:-admin}
+      FIRST_ADMIN_PASSWORD: ${FIRST_ADMIN_PASSWORD:-admin123}
+      FIRST_ADMIN_NAME: ${FIRST_ADMIN_NAME:-Administrator}
+    depends_on:
+      db:
+        condition: service_healthy
+    # Kommenter inn hvis du vil nå API-dokumentasjonen direkte på
+    # http://localhost:8000/docs
+    # ports:
+    #   - "8000:8000"
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    environment:
+      BACKEND_URL: http://backend:8000
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    depends_on:
+      - backend
+
+volumes:
+  db-data:
