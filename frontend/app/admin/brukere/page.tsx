@@ -196,7 +196,7 @@ export default function AdminUsersPage() {
             disabled={importing}
             title="Excel-ark med kolonnene Elev, Klasse, Brukernavn og Passord"
           >
-            {importing ? "Importerer…" : "Importer brukere"}
+            {importing ? "Importerer…" : "Importer vanlige brukere"}
           </button>
           <button className="btn btn-primary" onClick={openCreate}>
             Ny bruker
