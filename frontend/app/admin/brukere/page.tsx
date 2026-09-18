@@ -1,13 +1,13 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useAuth } from "@/components/AuthProvider";
 import { Alert, Badge, Empty, Loading, Modal, Toast } from "@/components/ui";
 import { api } from "@/lib/api";
 import { formatDate } from "@/lib/format";
-import type { Role, User } from "@/lib/types";
+import type { ImportResult, Role, User } from "@/lib/types";
 
 interface FormState {
   username: string;
@@ -43,6 +43,9 @@ export default function AdminUsersPage() {
   const [confirmDelete, setConfirmDelete] = useState<User | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<ImportResult | null>(null);
 
   useEffect(() => {
     if (!loading && !isAdmin) router.replace("/");
@@ -149,6 +152,28 @@ export default function AdminUsersPage() {
     }
   }
 
+  async function handleImport(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImporting(true);
+    setError("");
+    try {
+      const data = new FormData();
+      data.append("file", file);
+      const result = await api<ImportResult>("/users/import", {
+        method: "POST",
+        body: data,
+      });
+      setImportResult(result);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Importen feilet.");
+    } finally {
+      setImporting(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  }
+
   if (loading || !isAdmin) {
     return (
       <div className="card">
@@ -164,10 +189,28 @@ export default function AdminUsersPage() {
           <h1>Brukere</h1>
           <p className="sub">Opprett, oppdater og slett brukere.</p>
         </div>
-        <button className="btn btn-primary" onClick={openCreate}>
-          Ny bruker
-        </button>
+        <div className="row">
+          <button
+            className="btn"
+            onClick={() => fileRef.current?.click()}
+            disabled={importing}
+            title="Excel-ark med kolonnene Elev, Klasse, Brukernavn og Passord"
+          >
+            {importing ? "Importerer…" : "Importer brukere"}
+          </button>
+          <button className="btn btn-primary" onClick={openCreate}>
+            Ny bruker
+          </button>
+        </div>
       </div>
+
+      <input
+        ref={fileRef}
+        type="file"
+        accept=".xlsx,.xlsm"
+        onChange={handleImport}
+        style={{ display: "none" }}
+      />
 
       <div className="stack">
         <div className="toolbar">
@@ -388,6 +431,62 @@ export default function AdminUsersPage() {
               Tips: vil du bare stenge tilgangen, kan du redigere brukeren og fjerne
               haken for «Aktiv» i stedet.
             </p>
+          </div>
+        </Modal>
+      ) : null}
+
+      {importResult ? (
+        <Modal
+          title="Import av brukere fullført"
+          onClose={() => setImportResult(null)}
+          footer={
+            <button className="btn btn-primary" onClick={() => setImportResult(null)}>
+              Lukk
+            </button>
+          }
+        >
+          <div className="stack-sm">
+            <div className="stats">
+              <div className="stat">
+                <div className="label">Nye</div>
+                <div className="value">{importResult.created}</div>
+              </div>
+              <div className="stat">
+                <div className="label">Oppdatert</div>
+                <div className="value">{importResult.updated}</div>
+              </div>
+              <div className="stat">
+                <div className="label">Hoppet over</div>
+                <div className="value">{importResult.skipped}</div>
+              </div>
+            </div>
+
+            <p className="small muted">
+              Bare vanlige brukere importeres. Finnes brukernavnet fra før, oppdateres
+              navn og klasse, men passordet beholdes.
+            </p>
+
+            {importResult.errors.length > 0 ? (
+              <>
+                <p className="small muted" style={{ marginTop: 6 }}>
+                  Merknader fra importen:
+                </p>
+                <div
+                  className="card card-pad small"
+                  style={{ maxHeight: 220, overflowY: "auto", boxShadow: "none" }}
+                >
+                  <ul style={{ margin: 0, paddingLeft: 18 }}>
+                    {importResult.errors.map((e, i) => (
+                      <li key={i}>
+                        <strong>Rad {e.row}:</strong> {e.message}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </>
+            ) : (
+              <Alert tone="ok">Alle rader ble lest uten problemer.</Alert>
+            )}
           </div>
         </Modal>
       ) : null}
