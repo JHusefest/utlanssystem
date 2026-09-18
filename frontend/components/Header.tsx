@@ -4,9 +4,18 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { api } from "@/lib/api";
+import type { Stats } from "@/lib/types";
+
 import { useAuth } from "./AuthProvider";
 
-const LINKS = [
+interface NavLink {
+  href: string;
+  label: string;
+  count?: number;
+}
+
+const BASE_LINKS: NavLink[] = [
   { href: "/", label: "Utstyr" },
   { href: "/laan", label: "Lån" },
 ];
@@ -15,16 +24,38 @@ export function Header() {
   const { user, isAdmin, logout } = useAuth();
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  const [queueCount, setQueueCount] = useState(0);
 
   useEffect(() => {
     setOpen(false);
   }, [pathname]);
 
-  const links = [
-    ...LINKS,
+  // Teller for godkjenningskøen. Hentes på nytt ved hvert sidebytte,
+  // slik at tallet stemmer etter at man har behandlet en sak.
+  useEffect(() => {
+    if (!isAdmin) {
+      setQueueCount(0);
+      return;
+    }
+    let cancelled = false;
+    api<Stats>("/stats", { auth: false })
+      .then((s) => {
+        if (!cancelled) setQueueCount(s.pending_requests + s.pending_returns);
+      })
+      .catch(() => {
+        if (!cancelled) setQueueCount(0);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isAdmin, pathname]);
+
+  const links: NavLink[] = [
+    ...BASE_LINKS,
     ...(user ? [{ href: "/mine-laan", label: "Mine lån" }] : []),
     ...(isAdmin
       ? [
+          { href: "/admin/godkjenning", label: "Godkjenning", count: queueCount },
           { href: "/admin/utstyr", label: "Adm. utstyr" },
           { href: "/admin/brukere", label: "Adm. brukere" },
         ]
@@ -34,6 +65,14 @@ export function Header() {
   const isActive = (href: string) =>
     href === "/" ? pathname === "/" : pathname.startsWith(href);
 
+  const renderLinks = () =>
+    links.map((l) => (
+      <Link key={l.href} href={l.href} className={isActive(l.href) ? "active" : ""}>
+        {l.label}
+        {l.count ? <span className="count-pill">{l.count}</span> : null}
+      </Link>
+    ));
+
   return (
     <header className="header">
       <div className="container header-inner">
@@ -42,13 +81,7 @@ export function Header() {
           <span>Utlån</span>
         </Link>
 
-        <nav className="nav header-desktop">
-          {links.map((l) => (
-            <Link key={l.href} href={l.href} className={isActive(l.href) ? "active" : ""}>
-              {l.label}
-            </Link>
-          ))}
-        </nav>
+        <nav className="nav header-desktop">{renderLinks()}</nav>
 
         <div className="spacer" />
 
@@ -83,17 +116,7 @@ export function Header() {
       {open ? (
         <div className="mobile-nav">
           <div className="container">
-            <nav className="nav">
-              {links.map((l) => (
-                <Link
-                  key={l.href}
-                  href={l.href}
-                  className={isActive(l.href) ? "active" : ""}
-                >
-                  {l.label}
-                </Link>
-              ))}
-            </nav>
+            <nav className="nav">{renderLinks()}</nav>
             <div className="divider" />
             {user ? (
               <div className="stack-sm">

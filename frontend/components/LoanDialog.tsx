@@ -6,6 +6,7 @@ import { api } from "@/lib/api";
 import { dateInputValue } from "@/lib/format";
 import type { Equipment } from "@/lib/types";
 
+import { useAuth } from "./AuthProvider";
 import { Alert, Modal } from "./ui";
 
 export function LoanDialog({
@@ -17,6 +18,7 @@ export function LoanDialog({
   onClose: () => void;
   onDone: (message: string) => void;
 }) {
+  const { isAdmin } = useAuth();
   const [quantity, setQuantity] = useState(1);
   const [dueDate, setDueDate] = useState(dateInputValue(7));
   const [note, setNote] = useState("");
@@ -40,7 +42,11 @@ export function LoanDialog({
           note: note.trim() || null,
         }),
       });
-      onDone(`Lån registrert: ${item.name}`);
+      onDone(
+        isAdmin
+          ? `Lån registrert: ${item.name}`
+          : `Forespørsel sendt: ${item.name}`
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Klarte ikke å registrere lånet.");
       setBusy(false);
@@ -49,7 +55,7 @@ export function LoanDialog({
 
   return (
     <Modal
-      title="Registrer lån"
+      title={isAdmin ? "Registrer lån" : "Be om å låne"}
       onClose={onClose}
       footer={
         <>
@@ -62,7 +68,11 @@ export function LoanDialog({
             className="btn btn-primary"
             disabled={busy}
           >
-            {busy ? "Registrerer…" : "Registrer lån"}
+            {busy
+              ? "Sender…"
+              : isAdmin
+                ? "Registrer lån"
+                : "Send forespørsel"}
           </button>
         </>
       }
@@ -81,6 +91,13 @@ export function LoanDialog({
         </div>
 
         {error ? <Alert>{error}</Alert> : null}
+
+        {!isAdmin ? (
+          <Alert tone="info">
+            Forespørselen må godkjennes av en lærer før utstyret er ditt. Utstyret
+            holdes av til den er behandlet.
+          </Alert>
+        ) : null}
 
         {item.tracking_type === "quantity" ? (
           <div className="field">
@@ -121,6 +138,11 @@ export function LoanDialog({
             onChange={(e) => setNote(e.target.value)}
             placeholder="F.eks. hva utstyret skal brukes til"
           />
+          {!isAdmin ? (
+            <span className="hint">
+              Skriv gjerne hva du skal bruke det til – det gjør godkjenningen raskere.
+            </span>
+          ) : null}
         </div>
       </form>
     </Modal>

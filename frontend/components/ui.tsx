@@ -6,7 +6,7 @@ export function Badge({
   tone = "muted",
   children,
 }: {
-  tone?: "ok" | "warn" | "bad" | "muted";
+  tone?: "ok" | "warn" | "bad" | "muted" | "info";
   children: React.ReactNode;
 }) {
   return (

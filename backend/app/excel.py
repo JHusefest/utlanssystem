@@ -228,7 +228,8 @@ def parse_workbook(stream) -> tuple[list[tuple[int, dict]], list[dict]]:
 
         status_text = _norm_header(values.get("status"))
         status = STATUS_ALIASES.get(status_text, EquipmentStatus.available) if status_text else EquipmentStatus.available
-        if tracking is TrackingType.quantity and status is EquipmentStatus.on_loan:
+        # «Utlånt» følger av registrerte lån i appen, ikke av regnearket.
+        if status is EquipmentStatus.on_loan:
             status = EquipmentStatus.available
 
         if tracking is TrackingType.quantity:

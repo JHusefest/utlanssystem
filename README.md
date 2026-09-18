@@ -35,17 +35,68 @@ og overlever omstart.
 | Handling | Uten innlogging | Vanlig bruker | Administrator |
 |---|:--:|:--:|:--:|
 | Se utstyrsliste og hvem som har lånt hva | ✅ | ✅ | ✅ |
-| Registrere lån på seg selv | – | ✅ | ✅ |
-| Levere inn eget lån | – | ✅ | ✅ |
-| Levere inn andres lån | – | – | ✅ |
+| Be om å låne utstyr | – | ✅ | ✅ |
+| Godkjenne eller avslå en forespørsel | – | – | ✅ |
+| Trekke sin egen ubehandlede forespørsel | – | ✅ | ✅ |
+| Melde inn at utstyr er levert | – | ✅ | ✅ |
+| Bekrefte at utstyr faktisk er tilbake | – | – | ✅ |
 | Legge til / endre / slette utstyr | – | – | ✅ |
 | Importere utstyr fra Excel | – | – | ✅ |
 | Opprette / endre / slette brukere | – | – | ✅ |
 
-Hele oversikten er åpen uten innlogging, akkurat som avtalt – innlogging kreves først når
-noen skal *gjøre* noe.
+Hele oversikten er åpen uten innlogging – innlogging kreves først når noen skal
+*gjøre* noe.
 
 ---
+
+## Slik flyter et lån
+
+Ingenting skifter hender uten at en lærer har sagt ja, og ingenting regnes som
+levert før en lærer har sett at det står i skapet.
+
+```
+              eleven ber om                  læreren
+              å låne noe                     godkjenner
+   [ledig] ──────────────► [Venter på ──────────────────► [Utlånt]
+      ▲                     godkjenning]                     │
+      │                          │                           │ eleven melder
+      │        læreren avslår,   │                           │ inn retur
+      │        eller eleven      │                           ▼
+      │        trekker           │                    [Retur til
+      │◄─────────────────────────┘                     bekreftelse]
+      │                                                      │
+      │            læreren bekrefter at det står i skapet     │
+      └───────────────────────────────────────────────────────┘
+```
+
+Statusene et lån kan ha:
+
+| Status | Betyr | Utstyret er |
+|---|---|---|
+| Venter på godkjenning | Eleven har bedt om å låne | reservert |
+| Utlånt | Godkjent og utlevert | ute |
+| Retur til bekreftelse | Eleven sier det er levert | fortsatt ute |
+| Levert | Læreren har bekreftet | ledig |
+| Avslått | Læreren sa nei | ledig |
+| Trukket | Eleven ombestemte seg | ledig |
+
+Tre ting er verdt å merke seg:
+
+- **En forespørsel holder av utstyret.** Ingen andre kan be om den samme PC-en
+  mens forespørselen ligger i kø. Derfor bør du avslå det du ikke skal
+  gjennomføre, i stedet for å la det ligge.
+- **Innmeldt retur frigir ingenting.** Utstyret står som elevens ansvar helt til
+  du har bekreftet det. Står det ikke i skapet likevel, trykker du «Står ikke i
+  skapet», og lånet går tilbake til aktivt.
+- **Administratorer godkjenner ikke seg selv.** Låner du noe som administrator,
+  blir det aktivt med en gang. Du kan også registrere retur rett fra et aktivt
+  lån når eleven står foran deg i døra – uten å vente på at hen melder inn.
+
+Køen ligger under **Godkjenning** i menyen, med en teller som viser hvor mange
+saker som venter.
+
+---
+
 
 ## Utstyr: to måter å telle på
 
@@ -82,10 +133,12 @@ samt merknader for hver rad som hadde noe rart i seg.
 | Merkelapp | | Intern ID / klistremerke |
 | Antall | | Kun for `antall`. Totalt antall stk |
 | Plassering | | F.eks. «Skap A, hylle 1» |
-| Status | | `ledig`, `utlånt`, `service` eller `utrangert`. Tomt = ledig |
+| Status | | `ledig`, `service` eller `utrangert`. Tomt = ledig |
 | Beskrivelse | | Fritekst |
 
 Engelske overskrifter (`Name`, `Category`, `Serial number` …) godtas også.
+Setter du `utlånt` i Status-kolonnen, blir den lest som `ledig` – om noe er
+utlånt styres av lånene i appen, ikke av regnearket.
 
 **Importen er trygg å kjøre flere ganger.** Rader med samme serienummer oppdaterer
 eksisterende utstyr i stedet for å lage duplikater. Antallsbasert utstyr kjennes igjen
@@ -181,6 +234,16 @@ utlanssystem/
     ├── components/          Header, dialoger, UI-byggeklosser
     └── lib/                 API-klient, typer, formatering
 ```
+
+### Om databaseskjemaet
+
+Prosjektet bruker ikke Alembic. Tabeller opprettes med
+`Base.metadata.create_all`, og endringer på tabeller som allerede finnes ligger
+som idempotent SQL i `migrate_schema()` i `main.py`. Den kjøres ved hver
+oppstart og kan trygt kjøres om igjen.
+
+Legger du til felter senere, må du enten utvide den funksjonen eller nullstille
+databasen med `docker compose down -v` – det siste sletter all lånehistorikk.
 
 ---
 

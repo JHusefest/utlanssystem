@@ -11,7 +11,7 @@ import { availabilityLabel, statusTone } from "@/lib/format";
 import type { Equipment, Stats } from "@/lib/types";
 
 export default function HomePage() {
-  const { user } = useAuth();
+  const { user, isAdmin } = useAuth();
   const [items, setItems] = useState<Equipment[] | null>(null);
   const [stats, setStats] = useState<Stats | null>(null);
   const [categories, setCategories] = useState<string[]>([]);
@@ -63,12 +63,22 @@ export default function HomePage() {
           <h1>Utstyr</h1>
           <p className="sub">
             Oversikt over alt IT-utstyr på rommet.
-            {user ? "" : " Logg inn for å registrere lån."}
+            {user ? "" : " Logg inn for å be om lån."}
           </p>
         </div>
       </div>
 
       <div className="stack">
+        {isAdmin && stats && stats.pending_requests + stats.pending_returns > 0 ? (
+          <Link href="/admin/godkjenning" className="alert alert-info" style={{ display: "block" }}>
+            <strong>
+              {stats.pending_requests + stats.pending_returns} saker venter på deg
+            </strong>{" "}
+            — {stats.pending_requests} forespørsler og {stats.pending_returns} returer.
+            Klikk for å behandle.
+          </Link>
+        ) : null}
+
         {stats ? (
           <div className="stats">
             <div className="stat">
@@ -80,8 +90,18 @@ export default function HomePage() {
               <div className="value">{stats.available_units}</div>
             </div>
             <div className="stat">
-              <div className="label">Aktive lån</div>
+              <div className="label">Utlånt</div>
               <div className="value">{stats.active_loans}</div>
+            </div>
+            <div className="stat">
+              <div className="label">Til godkjenning</div>
+              <div
+                className={`value${
+                  stats.pending_requests + stats.pending_returns ? " warn" : ""
+                }`}
+              >
+                {stats.pending_requests + stats.pending_returns}
+              </div>
             </div>
             <div className="stat">
               <div className="label">På overtid</div>
@@ -161,7 +181,7 @@ export default function HomePage() {
                       className="btn btn-sm btn-primary"
                       onClick={() => setLoanItem(item)}
                     >
-                      Lån
+                      {isAdmin ? "Lån ut" : "Be om"}
                     </button>
                   ) : (
                     <Link href={`/utstyr/${item.id}`} className="btn btn-sm btn-ghost">

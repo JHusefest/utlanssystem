@@ -2,7 +2,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .models import EquipmentStatus, Role, TrackingType
+from .models import EquipmentStatus, LoanStatus, Role, TrackingType
 
 # ---------------------------------------------------------------- auth
 
@@ -102,9 +102,12 @@ class EquipmentOut(EquipmentBase):
 
     id: int
     created_at: datetime
+    units_total: int
     quantity_on_loan: int
+    quantity_reserved: int
     quantity_available: int
     is_available: bool
+    is_usable: bool
 
 
 # ---------------------------------------------------------------- lån
@@ -115,6 +118,12 @@ class LoanCreate(BaseModel):
     quantity: int = Field(default=1, ge=1)
     due_date: datetime | None = None
     note: str | None = None
+
+
+class LoanDecision(BaseModel):
+    """Begrunnelse ved avslag, eller merknad ved godkjenning/retur."""
+
+    note: str | None = Field(default=None, max_length=500)
 
 
 class LoanEquipmentBrief(BaseModel):
@@ -131,14 +140,26 @@ class LoanOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    status: LoanStatus
     quantity: int
+
     borrowed_at: datetime
     due_date: datetime | None
+    approved_at: datetime | None
+    return_requested_at: datetime | None
     returned_at: datetime | None
+
     note: str | None
-    is_active: bool
+    decision_note: str | None
+
+    is_open: bool
+    is_out: bool
+    needs_admin: bool
+
     equipment: LoanEquipmentBrief
     user: UserPublic
+    approved_by: UserPublic | None = None
+    returned_by: UserPublic | None = None
 
 
 # ---------------------------------------------------------------- diverse
@@ -150,6 +171,8 @@ class Stats(BaseModel):
     available_units: int
     active_loans: int
     overdue_loans: int
+    pending_requests: int
+    pending_returns: int
     user_count: int
 
 

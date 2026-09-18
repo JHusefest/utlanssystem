@@ -2,12 +2,19 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useAuth } from "@/components/AuthProvider";
-import { Badge, Empty, Loading, Toast } from "@/components/ui";
+import { Alert, Badge, Empty, Loading, Toast } from "@/components/ui";
 import { api } from "@/lib/api";
-import { formatDate, formatDateTime, isOverdue } from "@/lib/format";
+import {
+  LOAN_STATUS_LABEL,
+  LOAN_STATUS_TONE,
+  formatDate,
+  formatDateTime,
+  isOverdue,
+  timeAgo,
+} from "@/lib/format";
 import type { Loan } from "@/lib/types";
 
 export default function MyLoansPage() {
@@ -37,14 +44,26 @@ export default function MyLoansPage() {
     void load();
   }, [load]);
 
-  async function handleReturn(loan: Loan) {
+  const { waiting, out, history } = useMemo(() => {
+    const all = loans || [];
+    return {
+      waiting: all.filter((l) => l.status === "pending"),
+      out: all.filter((l) => l.is_out),
+      history: all.filter((l) => !l.is_open),
+    };
+  }, [loans]);
+
+  async function act(loan: Loan, path: string, message: string) {
     setBusyId(loan.id);
     try {
-      await api(`/loans/${loan.id}/return`, { method: "POST" });
-      setToast(`Levert inn: ${loan.equipment.name}`);
+      await api(`/loans/${loan.id}/${path}`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      setToast(message);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Klarte ikke å registrere retur.");
+      setError(err instanceof Error ? err.message : "Handlingen feilet.");
     } finally {
       setBusyId(null);
     }
@@ -58,32 +77,67 @@ export default function MyLoansPage() {
     );
   }
 
-  const active = (loans || []).filter((l) => l.is_active);
-  const history = (loans || []).filter((l) => !l.is_active);
-
   return (
     <>
       <div className="page-head">
         <div>
           <h1>Mine lån</h1>
-          <p className="sub">Utstyr du har ute nå, og det du har levert tilbake.</p>
+          <p className="sub">Det du venter på, det du har ute, og det du har levert.</p>
         </div>
         <Link href="/" className="btn btn-primary">
-          Lån nytt utstyr
+          Be om nytt utstyr
         </Link>
       </div>
 
       <div className="stack">
-        {error ? <div className="alert alert-error">{error}</div> : null}
+        {error ? <Alert>{error}</Alert> : null}
+
+        {waiting.length > 0 ? (
+          <div className="card">
+            <div className="card-head">
+              <h2>Venter på godkjenning</h2>
+              <span className="small muted">{waiting.length}</span>
+            </div>
+            {waiting.map((loan) => (
+              <div key={loan.id} className="queue-item">
+                <div>
+                  <div className="who">
+                    <Link href={`/utstyr/${loan.equipment.id}`}>
+                      {loan.equipment.name}
+                    </Link>
+                    {loan.quantity > 1 ? (
+                      <span className="muted small"> · {loan.quantity} stk</span>
+                    ) : null}
+                  </div>
+                  <div className="what">
+                    Sendt {timeAgo(loan.borrowed_at)} · en lærer må godkjenne før du
+                    kan hente den
+                  </div>
+                </div>
+                <div className="actions">
+                  <button
+                    className="btn btn-sm"
+                    disabled={busyId === loan.id}
+                    onClick={() =>
+                      void act(loan, "cancel", `Forespørsel trukket: ${loan.equipment.name}`)
+                    }
+                  >
+                    {busyId === loan.id ? "…" : "Trekk forespørsel"}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : null}
 
         <div className="card">
           <div className="card-head">
             <h2>Ute nå</h2>
-            <span className="small muted">{active.length}</span>
+            <span className="small muted">{out.length}</span>
           </div>
           {loans === null ? (
             <Loading rows={3} />
-          ) : active.length === 0 ? (
+          ) : out.length === 0 ? (
             <Empty title="Du har ingenting utlånt">
               <Link href="/" className="link">
                 Se hva som er ledig
@@ -96,13 +150,13 @@ export default function MyLoansPage() {
                   <tr>
                     <th>Utstyr</th>
                     <th>Antall</th>
-                    <th>Lånt ut</th>
+                    <th>Status</th>
                     <th>Frist</th>
                     <th />
                   </tr>
                 </thead>
                 <tbody>
-                  {active.map((loan) => (
+                  {out.map((loan) => (
                     <tr key={loan.id}>
                       <td>
                         <Link href={`/utstyr/${loan.equipment.id}`} className="cell-main">
@@ -115,7 +169,11 @@ export default function MyLoansPage() {
                         ) : null}
                       </td>
                       <td className="nowrap">{loan.quantity} stk</td>
-                      <td className="nowrap">{formatDate(loan.borrowed_at)}</td>
+                      <td>
+                        <Badge tone={LOAN_STATUS_TONE[loan.status]}>
+                          {LOAN_STATUS_LABEL[loan.status]}
+                        </Badge>
+                      </td>
                       <td className="nowrap">
                         {isOverdue(loan) ? (
                           <Badge tone="warn">
@@ -126,13 +184,25 @@ export default function MyLoansPage() {
                         )}
                       </td>
                       <td className="right">
-                        <button
-                          className="btn btn-sm btn-primary"
-                          onClick={() => handleReturn(loan)}
-                          disabled={busyId === loan.id}
-                        >
-                          {busyId === loan.id ? "…" : "Lever tilbake"}
-                        </button>
+                        {loan.status === "active" ? (
+                          <button
+                            className="btn btn-sm btn-primary"
+                            disabled={busyId === loan.id}
+                            onClick={() =>
+                              void act(
+                                loan,
+                                "request-return",
+                                `Retur meldt inn: ${loan.equipment.name}`
+                              )
+                            }
+                          >
+                            {busyId === loan.id ? "…" : "Meld inn retur"}
+                          </button>
+                        ) : (
+                          <span className="small muted nowrap">
+                            Venter på bekreftelse
+                          </span>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -142,10 +212,17 @@ export default function MyLoansPage() {
           )}
         </div>
 
+        {out.some((l) => l.status === "return_pending") ? (
+          <p className="small muted">
+            Utstyr du har meldt inn står som ditt ansvar til en lærer har sett at det er
+            på plass i skapet.
+          </p>
+        ) : null}
+
         {history.length > 0 ? (
           <div className="card">
             <div className="card-head">
-              <h2>Tidligere lån</h2>
+              <h2>Tidligere</h2>
               <span className="small muted">{history.length}</span>
             </div>
             <div className="table-wrap">
@@ -154,17 +231,28 @@ export default function MyLoansPage() {
                   <tr>
                     <th>Utstyr</th>
                     <th>Antall</th>
-                    <th>Lånt ut</th>
-                    <th>Levert</th>
+                    <th>Status</th>
+                    <th>Avsluttet</th>
                   </tr>
                 </thead>
                 <tbody>
                   {history.slice(0, 30).map((loan) => (
                     <tr key={loan.id}>
-                      <td className="cell-main">{loan.equipment.name}</td>
+                      <td>
+                        <div className="cell-main">{loan.equipment.name}</div>
+                        {loan.decision_note ? (
+                          <div className="cell-sub">«{loan.decision_note}»</div>
+                        ) : null}
+                      </td>
                       <td className="nowrap">{loan.quantity} stk</td>
-                      <td className="nowrap">{formatDate(loan.borrowed_at)}</td>
-                      <td className="nowrap">{formatDateTime(loan.returned_at)}</td>
+                      <td>
+                        <Badge tone={LOAN_STATUS_TONE[loan.status]}>
+                          {LOAN_STATUS_LABEL[loan.status]}
+                        </Badge>
+                      </td>
+                      <td className="nowrap">
+                        {formatDateTime(loan.returned_at ?? loan.approved_at)}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

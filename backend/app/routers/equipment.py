@@ -6,7 +6,7 @@ from sqlalchemy import or_
 
 from ..deps import CurrentAdmin, Db
 from ..excel import build_template, parse_workbook
-from ..models import Equipment, EquipmentStatus, Loan, TrackingType
+from ..models import HOLDING_STATUSES, Equipment, EquipmentStatus, Loan, TrackingType
 from ..schemas import EquipmentCreate, EquipmentOut, EquipmentUpdate, ImportResult
 
 router = APIRouter(prefix="/api/equipment", tags=["utstyr"])
@@ -101,7 +101,6 @@ def create_equipment(data: EquipmentCreate, db: Db, admin: CurrentAdmin):
     db.refresh(item)
     return item
 
-
 @router.patch("/{equipment_id}", response_model=EquipmentOut)
 def update_equipment(equipment_id: int, data: EquipmentUpdate, db: Db, admin: CurrentAdmin):
     item = db.get(Equipment, equipment_id)
@@ -125,16 +124,12 @@ def update_equipment(equipment_id: int, data: EquipmentUpdate, db: Db, admin: Cu
                 status_code=409, detail="Serienummeret er allerede registrert."
             )
 
-    # Ikke la admin sette status til "ledig" på noe som faktisk er utlånt
-    if payload.get("status") is EquipmentStatus.available and item.quantity_on_loan > 0:
-        if item.tracking_type is TrackingType.unique:
-            raise HTTPException(
-                status_code=400,
-                detail="Enheten er utlånt. Registrer retur før du endrer status.",
-            )
-
     for key, value in payload.items():
         setattr(item, key, value)
+
+    # «Utlånt» styres av lånene, ikke av dette feltet.
+    if item.status is EquipmentStatus.on_loan:
+        item.status = EquipmentStatus.available
 
     if item.tracking_type is TrackingType.quantity:
         if item.quantity_total < item.quantity_on_loan:
@@ -143,8 +138,8 @@ def update_equipment(equipment_id: int, data: EquipmentUpdate, db: Db, admin: Cu
                 detail=f"Antall kan ikke settes lavere enn {item.quantity_on_loan} som er utlånt nå.",
             )
         item.serial_number = item.serial_number or None
-        if item.status is EquipmentStatus.on_loan:
-            item.status = EquipmentStatus.available
+    else:
+        item.quantity_total = 1
 
     db.commit()
     db.refresh(item)
@@ -156,15 +151,18 @@ def delete_equipment(equipment_id: int, db: Db, admin: CurrentAdmin):
     item = db.get(Equipment, equipment_id)
     if item is None:
         raise HTTPException(status_code=404, detail="Fant ikke utstyret.")
-    active = (
+    open_loans = (
         db.query(Loan)
-        .filter(Loan.equipment_id == equipment_id, Loan.returned_at.is_(None))
+        .filter(
+            Loan.equipment_id == equipment_id,
+            Loan.status.in_(HOLDING_STATUSES),
+        )
         .count()
     )
-    if active:
+    if open_loans:
         raise HTTPException(
             status_code=400,
-            detail="Utstyret er utlånt. Registrer retur før du sletter.",
+            detail="Utstyret er utlånt eller har en ubehandlet forespørsel. Rydd opp i lånene før du sletter.",
         )
     db.delete(item)
     db.commit()
@@ -215,8 +213,10 @@ async def import_equipment(db: Db, admin: CurrentAdmin, file: UploadFile = File(
                 if existing.tracking_type is TrackingType.quantity:
                     if existing.quantity_total < existing.quantity_on_loan:
                         existing.quantity_total = existing.quantity_on_loan
-                    if existing.status is EquipmentStatus.on_loan:
-                        existing.status = EquipmentStatus.available
+                else:
+                    existing.quantity_total = 1
+                if existing.status is EquipmentStatus.on_loan:
+                    existing.status = EquipmentStatus.available
                 outcome = "updated"
             else:
                 db.add(Equipment(**data))
@@ -244,3 +244,8 @@ def _normalise(payload: dict) -> None:
             payload[key] = payload[key].strip() or None
     if "name" in payload and isinstance(payload["name"], str):
         payload["name"] = payload["name"].strip()
+    # «Utlånt» er ikke lenger en status man setter selv – den utledes av lånene.
+    if payload.get("status") is EquipmentStatus.on_loan:
+        payload["status"] = EquipmentStatus.available
+    if payload.get("tracking_type") is TrackingType.unique:
+        payload["quantity_total"] = 1

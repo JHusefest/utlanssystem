@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.exc import OperationalError
 
 from .config import settings
@@ -31,6 +31,52 @@ def wait_for_db(retries: int = 30, delay: float = 2.0) -> None:
     raise RuntimeError(f"Fikk ikke kontakt med databasen. Siste feil: {last_error}")
 
 
+def migrate_schema() -> None:
+    """Idempotente skjemaendringer for databaser laget før godkjenningsflyten.
+
+    Prosjektet bruker ikke Alembic. `create_all` lager nye tabeller, men rører
+    ikke tabeller som allerede finnes – derfor legges nye kolonner til her.
+    Alt kan kjøres om igjen uten bivirkninger.
+    """
+    statements = [
+        # Enum-typen finnes ikke fra før hvis loans-tabellen ble laget tidligere.
+        """
+        DO $$ BEGIN
+            CREATE TYPE loan_status AS ENUM
+                ('pending', 'active', 'return_pending', 'returned', 'rejected', 'cancelled');
+        EXCEPTION WHEN duplicate_object THEN NULL;
+        END $$;
+        """,
+        "ALTER TABLE loans ADD COLUMN IF NOT EXISTS status loan_status",
+        "ALTER TABLE loans ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ",
+        "ALTER TABLE loans ADD COLUMN IF NOT EXISTS approved_by_id INTEGER"
+        " REFERENCES users(id) ON DELETE SET NULL",
+        "ALTER TABLE loans ADD COLUMN IF NOT EXISTS return_requested_at TIMESTAMPTZ",
+        "ALTER TABLE loans ADD COLUMN IF NOT EXISTS decision_note TEXT",
+        # Gamle lån: alt som ikke var levert regnes som aktivt og godkjent.
+        """
+        UPDATE loans
+           SET status = CASE
+                   WHEN returned_at IS NOT NULL THEN 'returned'::loan_status
+                   ELSE 'active'::loan_status
+               END
+         WHERE status IS NULL
+        """,
+        "UPDATE loans SET approved_at = borrowed_at"
+        " WHERE approved_at IS NULL AND status IN ('active', 'returned')",
+        "ALTER TABLE loans ALTER COLUMN status SET DEFAULT 'pending'",
+        "ALTER TABLE loans ALTER COLUMN status SET NOT NULL",
+        "CREATE INDEX IF NOT EXISTS ix_loans_status ON loans (status)",
+        # Utstyr merket «utlånt» i en tidligere versjon: nå styres dette av lånene.
+        "UPDATE equipment SET status = 'available' WHERE status = 'on_loan'",
+    ]
+
+    with engine.begin() as conn:
+        for sql in statements:
+            conn.execute(text(sql))
+    log.info("Skjemaet er oppdatert.")
+
+
 def create_first_admin() -> None:
     with SessionLocal() as db:
         if db.query(User).count() == 0:
@@ -52,6 +98,7 @@ def create_first_admin() -> None:
 async def lifespan(app: FastAPI):
     wait_for_db()
     Base.metadata.create_all(bind=engine)
+    migrate_schema()
     create_first_admin()
     yield
 

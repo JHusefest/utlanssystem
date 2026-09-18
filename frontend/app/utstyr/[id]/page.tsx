@@ -9,6 +9,8 @@ import { LoanDialog } from "@/components/LoanDialog";
 import { Badge, Empty, Loading, Toast } from "@/components/ui";
 import { api } from "@/lib/api";
 import {
+  LOAN_STATUS_LABEL,
+  LOAN_STATUS_TONE,
   availabilityLabel,
   formatDate,
   formatDateTime,
@@ -48,17 +50,71 @@ export default function EquipmentDetailPage() {
     void load();
   }, [load]);
 
-  async function handleReturn(loan: Loan) {
+  async function act(loan: Loan, path: string, message: string) {
     setBusyId(loan.id);
     try {
-      await api(`/loans/${loan.id}/return`, { method: "POST" });
-      setToast("Tilbakelevering registrert.");
+      await api(`/loans/${loan.id}/${path}`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      setToast(message);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Klarte ikke å registrere retur.");
+      setError(err instanceof Error ? err.message : "Handlingen feilet.");
     } finally {
       setBusyId(null);
     }
+  }
+
+  function actionFor(loan: Loan) {
+    if (!user) return null;
+    const mine = loan.user.id === user.id;
+
+    if (isAdmin && (loan.status === "active" || loan.status === "return_pending")) {
+      return (
+        <button
+          className="btn btn-sm"
+          disabled={busyId === loan.id}
+          onClick={() =>
+            void act(loan, "confirm-return", `Retur registrert: ${loan.equipment.name}`)
+          }
+        >
+          {busyId === loan.id ? "…" : "Registrer retur"}
+        </button>
+      );
+    }
+    if (isAdmin && loan.status === "pending") {
+      return (
+        <Link href="/admin/godkjenning" className="btn btn-sm btn-primary">
+          Behandle
+        </Link>
+      );
+    }
+    if (mine && loan.status === "active") {
+      return (
+        <button
+          className="btn btn-sm"
+          disabled={busyId === loan.id}
+          onClick={() =>
+            void act(loan, "request-return", `Retur meldt inn: ${loan.equipment.name}`)
+          }
+        >
+          {busyId === loan.id ? "…" : "Meld inn retur"}
+        </button>
+      );
+    }
+    if (mine && loan.status === "pending") {
+      return (
+        <button
+          className="btn btn-sm"
+          disabled={busyId === loan.id}
+          onClick={() => void act(loan, "cancel", "Forespørsel trukket.")}
+        >
+          {busyId === loan.id ? "…" : "Trekk"}
+        </button>
+      );
+    }
+    return null;
   }
 
   if (error && !item) {
@@ -81,8 +137,8 @@ export default function EquipmentDetailPage() {
     );
   }
 
-  const active = loans.filter((l) => l.is_active);
-  const history = loans.filter((l) => !l.is_active);
+  const open = loans.filter((l) => l.is_open);
+  const history = loans.filter((l) => !l.is_open);
 
   return (
     <>
@@ -101,7 +157,7 @@ export default function EquipmentDetailPage() {
           <Badge tone={statusTone(item)}>{availabilityLabel(item)}</Badge>
           {user && item.is_available ? (
             <button className="btn btn-primary" onClick={() => setShowLoan(true)}>
-              Registrer lån
+              {isAdmin ? "Registrer lån" : "Be om å låne"}
             </button>
           ) : null}
         </div>
@@ -134,11 +190,15 @@ export default function EquipmentDetailPage() {
               <>
                 <div>
                   <div className="k">Totalt</div>
-                  <div className="v">{item.quantity_total} stk</div>
+                  <div className="v">{item.units_total} stk</div>
                 </div>
                 <div>
-                  <div className="k">Utlånt</div>
+                  <div className="k">Ute</div>
                   <div className="v">{item.quantity_on_loan} stk</div>
+                </div>
+                <div>
+                  <div className="k">Reservert</div>
+                  <div className="v">{item.quantity_reserved} stk</div>
                 </div>
               </>
             ) : null}
@@ -157,25 +217,25 @@ export default function EquipmentDetailPage() {
 
         <div className="card">
           <div className="card-head">
-            <h2>Aktive lån</h2>
-            <span className="small muted">{active.length}</span>
+            <h2>Åpne saker</h2>
+            <span className="small muted">{open.length}</span>
           </div>
-          {active.length === 0 ? (
+          {open.length === 0 ? (
             <Empty title="Ingen aktive lån">Alt er på plass i skapet.</Empty>
           ) : (
             <div className="table-wrap">
               <table>
                 <thead>
                   <tr>
-                    <th>Lånt av</th>
+                    <th>Person</th>
                     <th>Antall</th>
-                    <th>Lånt ut</th>
+                    <th>Status</th>
                     <th>Frist</th>
                     <th />
                   </tr>
                 </thead>
                 <tbody>
-                  {active.map((loan) => (
+                  {open.map((loan) => (
                     <tr key={loan.id}>
                       <td>
                         <div className="cell-main">{loan.user.full_name}</div>
@@ -184,7 +244,11 @@ export default function EquipmentDetailPage() {
                         ) : null}
                       </td>
                       <td className="nowrap">{loan.quantity} stk</td>
-                      <td className="nowrap">{formatDate(loan.borrowed_at)}</td>
+                      <td>
+                        <Badge tone={LOAN_STATUS_TONE[loan.status]}>
+                          {LOAN_STATUS_LABEL[loan.status]}
+                        </Badge>
+                      </td>
                       <td className="nowrap">
                         {isOverdue(loan) ? (
                           <Badge tone="warn">{formatDate(loan.due_date)}</Badge>
@@ -192,17 +256,7 @@ export default function EquipmentDetailPage() {
                           formatDate(loan.due_date)
                         )}
                       </td>
-                      <td className="right">
-                        {user && (isAdmin || loan.user.id === user.id) ? (
-                          <button
-                            className="btn btn-sm"
-                            onClick={() => handleReturn(loan)}
-                            disabled={busyId === loan.id}
-                          >
-                            {busyId === loan.id ? "…" : "Registrer retur"}
-                          </button>
-                        ) : null}
-                      </td>
+                      <td className="right">{actionFor(loan)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -221,10 +275,10 @@ export default function EquipmentDetailPage() {
               <table>
                 <thead>
                   <tr>
-                    <th>Lånt av</th>
+                    <th>Person</th>
                     <th>Antall</th>
-                    <th>Lånt ut</th>
-                    <th>Levert</th>
+                    <th>Status</th>
+                    <th>Avsluttet</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -232,8 +286,14 @@ export default function EquipmentDetailPage() {
                     <tr key={loan.id}>
                       <td className="cell-main">{loan.user.full_name}</td>
                       <td className="nowrap">{loan.quantity} stk</td>
-                      <td className="nowrap">{formatDate(loan.borrowed_at)}</td>
-                      <td className="nowrap">{formatDateTime(loan.returned_at)}</td>
+                      <td>
+                        <Badge tone={LOAN_STATUS_TONE[loan.status]}>
+                          {LOAN_STATUS_LABEL[loan.status]}
+                        </Badge>
+                      </td>
+                      <td className="nowrap">
+                        {formatDateTime(loan.returned_at ?? loan.approved_at)}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

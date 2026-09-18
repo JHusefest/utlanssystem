@@ -570,6 +570,77 @@ textarea {
   border-color: var(--border);
 }
 
+.badge-info {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+/* teller i menyen, f.eks. antall saker til godkjenning */
+.count-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 19px;
+  height: 19px;
+  padding: 0 6px;
+  margin-left: 6px;
+  border-radius: 999px;
+  background: var(--warn);
+  color: var(--surface);
+  font-size: 0.72rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+@media (prefers-color-scheme: dark) {
+  .count-pill {
+    color: #1d1a12;
+  }
+}
+
+/* rad i godkjenningskøen */
+.queue-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.queue-item:last-child {
+  border-bottom: none;
+}
+
+.queue-item .who {
+  font-weight: 600;
+}
+
+.queue-item .what {
+  color: var(--text-muted);
+  font-size: 0.87rem;
+  margin-top: 2px;
+}
+
+.queue-item .actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+@media (max-width: 560px) {
+  .queue-item .actions {
+    width: 100%;
+  }
+  .queue-item .actions .btn {
+    flex: 1;
+  }
+}
+
 .dot {
   width: 6px;
   height: 6px;
